@@ -1,0 +1,233 @@
+# This file is maintained by velocitas CLI, do not modify manually. Change settings in .velocitas.json
+# Copyright (c) 2022-2024 Contributors to the Eclipse Foundation
+#
+# This program and the accompanying materials are made available under the
+# terms of the Apache License, Version 2.0 which is available at
+# https://www.apache.org/licenses/LICENSE-2.0.
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+# WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+# License for the specific language governing permissions and limitations
+# under the License.
+#
+# SPDX-License-Identifier: Apache-2.0
+
+name: Build Docker Image for single arch
+
+on:
+  workflow_call:
+    inputs:
+      platform:
+        required: true
+        type: string
+      app_name:
+        required: true
+        type: string
+
+jobs:
+  build-image:
+    name: "Building image (${{ inputs.app_name }})"
+    runs-on: ubuntu-22.04
+    container: ghcr.io/eclipse-velocitas/devcontainer-base-images/python:v0.3
+    outputs:
+      archs: ${{ steps.set_args.outputs.archs_matrix }}
+    env:
+      APP_NAME: ${{ inputs.app_name }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: "recursive"
+
+      - name: Clone Release Documentation Action repository
+        uses: actions/checkout@v4
+        with:
+          repository: eclipse-velocitas/release-documentation-action
+          path: "./.github/actions"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - id: github-repository-name-case-adjusted
+        name: Prepare repository name in lower case for docker upload. This supports repository names in mixed case
+        uses: ASzc/change-string-case-action@v6
+        with:
+          string: ${{ github.repository }}
+
+      - uses: de-vri-es/setup-git-credentials@v2
+        with:
+          credentials: https://user:${{ secrets.GITHUB_TOKEN }}@github.com/
+
+      - name: Init velocitas project
+        run: |
+          velocitas init
+
+      - name: Setup git config
+        shell: bash
+        run: |
+          git config --global user.email "github-automation@users.noreply.github.com"
+          git config --global user.name "Github Automation"
+
+      - name: Set Arguments for next step
+        id: set_args
+        run: |
+          archs=""
+          if [ ${{ inputs.platform }} = "multiarch" ]; then
+            echo "Build Multiarch"
+            echo "platforms=linux/amd64, linux/arm64" >> $GITHUB_OUTPUT
+            archs=$(echo "linux/amd64, linux/arm64" | tr -d "linux\/,")
+          else
+            echo "Build ${{inputs.platform}}"
+            echo "platforms=linux/${{ inputs.platform }}" >> $GITHUB_OUTPUT
+            archs=${{ inputs.platform }}
+          fi
+          echo "archs=$archs" >> $GITHUB_OUTPUT
+          json_array=$(echo "$archs" | jq -R 'sub("^ "; "") | split(" ")' )
+          echo "archs_matrix=$(jq -cn --argjson archs "$json_array" '{arch: $archs}')" >> $GITHUB_OUTPUT
+        shell: bash
+
+      - name: "${{ env.APP_NAME }} -- Build image"
+        id: image_build
+        uses: docker/build-push-action@v5
+        with:
+          provenance: false
+          pull: true
+          push: false
+          outputs: |
+            type=oci,dest=./${{ env.APP_NAME }}-oci-${{inputs.platform}}.tar
+          file: ./app/Dockerfile
+          context: .
+          platforms: ${{ steps.set_args.outputs.platforms }}
+          secrets: |
+            "github_token=user:${{ secrets.GITHUB_TOKEN }}"
+          tags: ${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{steps.github-repository-name-case-adjusted.outputs.lowercase}}
+
+      - name: "Install skopeo"
+        run: |
+          sudo apt-get update
+          sudo apt-get -y install skopeo
+
+      - name: "${{ env.APP_NAME }} -- Inspect image with skopeo and create docker archives"
+        id: inspect_tar
+        run: |
+          skopeo inspect --raw oci-archive:${{ env.APP_NAME }}-oci-${{inputs.platform}}.tar | jq
+          skopeo inspect oci-archive:${{ env.APP_NAME }}-oci-${{inputs.platform}}.tar
+          for arch in ${{ steps.set_args.outputs.archs }}; do
+            skopeo copy --override-arch $arch oci-archive:${{ env.APP_NAME }}-oci-${{inputs.platform}}.tar docker-archive:${{ env.APP_NAME }}-docker-$arch.tar
+          done
+
+      - name: "${{ env.APP_NAME }} -- Get Native Binaries from image"
+        run: |
+          for arch in ${{ steps.set_args.outputs.archs }}; do
+            image=$(docker load -i ${{ env.APP_NAME }}-docker-$arch.tar | cut -d ':' -f 3)
+            id=$(docker create $image --platform linux/$arch)
+            mkdir -p ./out
+            app_name=$(echo ${{ env.APP_NAME }}_$arch | tr '[:upper:]' '[:lower:]')
+            docker cp $id:/app ./out/$app_name
+          done
+
+      - name: "${{ env.APP_NAME }} -- Upload native binaries to artifacts"
+        uses: actions/upload-artifact@v4
+        with:
+          name: binaries
+          path: |
+            out/*
+
+      - name: "${{ env.APP_NAME }} -- Upload oci compliant image to artifacts"
+        if: ${{ steps.image_build.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.APP_NAME }}-${{ inputs.platform }}-oci-archive
+          path: ./${{ env.APP_NAME }}-oci*.tar
+          if-no-files-found: error
+
+      - name: "${{ env.APP_NAME }} -- Upload docker image to artifacts"
+        if: ${{ steps.image_build.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.APP_NAME }}-${{ inputs.platform }}-docker-archive
+          path: ./${{ env.APP_NAME }}-docker*.tar
+          if-no-files-found: error
+
+      - name: "${{ env.APP_NAME }} -- Upload AppManifest.json to artifacts"
+        if: ${{ steps.image_build.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: AppManifest
+          path: ./app/AppManifest.json
+          if-no-files-found: error
+
+  scan-image:
+    name: "Scan image (${{ inputs.app_name }}-${{ matrix.arch }})"
+    runs-on: ubuntu-22.04
+    needs: build-image
+    strategy:
+      matrix: ${{fromJSON(needs.build-image.outputs.archs)}}
+    env:
+      APP_NAME: ${{ inputs.app_name }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: "recursive"
+
+      - name: Clone Release Documentation Action repository
+        uses: actions/checkout@v4
+        with:
+          repository: eclipse-velocitas/release-documentation-action
+          path: "./.github/actions"
+
+      - name: Download Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: .
+          pattern: ${{ env.APP_NAME }}*-docker-archive
+          merge-multiple: true
+
+      - name: "${{ env.APP_NAME }} -- Scan docker image for vulnerabilities"
+        uses: aquasecurity/trivy-action@0.19.0
+        with:
+          input: ${{ env.APP_NAME }}-docker-${{ matrix.arch }}.tar
+          exit-code: "0"
+          ignore-unfixed: true
+          severity: "CRITICAL,HIGH"
+          format: "template"
+          template: "@.github/scripts/junit.tpl"
+          output: "junit.xml"
+
+      - name: "${{ env.APP_NAME }} -- Show scan results"
+        if: ${{ always() }}
+        run: cat ./junit.xml
+
+      - name: "${{ env.APP_NAME }} -- Package vulnerability scan files"
+        uses: ./.github/actions/package
+        with:
+          name: "VulnerabilityScan-${{ env.APP_NAME }}"
+          type: "VulnerabilityScan"
+          schema: "JUnit"
+          sourcePath: ./junit.xml
+          packagePath: results/Documentation/renderer
+
+      - name: "${{ env.APP_NAME }} -- Upload trivy report as artifacts"
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-trivy-${{ matrix.arch }}
+          path: |
+            results/Documentation/renderer/*
+
+      - name: "${{ env.APP_NAME }} -- Publish Trivy Scan Results"
+        uses: mikepenz/action-junit-report@v4
+        with:
+          check_name: Trivy Scan Results (${{ env.APP_NAME }})
+          report_paths: ./junit.xml
+          summary: true
+          update_check: true
+          annotate_only: true

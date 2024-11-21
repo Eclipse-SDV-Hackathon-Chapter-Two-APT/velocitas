@@ -1,0 +1,22 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "compounds": [],
+    "configurations": [
+        {
+            "type": "python",
+            "justMyCode": false,
+            "request": "launch",
+            "name": "VehicleApp",
+            "program": "${workspaceFolder}/app/src/main.py",
+            "console": "integratedTerminal",
+            "env": {
+                "SDV_MIDDLEWARE_TYPE": "native",
+                "SDV_VEHICLEDATABROKER_ADDRESS": "grpc://127.0.0.1:55555",
+                "SDV_MQTT_ADDRESS": "mqtt://127.0.0.1:1883"
+            }
+        }
+    ]
+}

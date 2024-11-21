@@ -1,0 +1,212 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Local Runtime - Up",
+			"detail": "Starts up the local runtime",
+			"type": "shell",
+			"command": "velocitas exec runtime-local up",
+			"group": "none",
+			"presentation": {
+				"panel": "dedicated",
+				"clear": true,
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "Local Runtime - Down",
+			"detail": "Stops the local runtime",
+			"type": "shell",
+			"command": "velocitas exec runtime-local down",
+			"group": "none",
+			"presentation": {
+				"panel": "dedicated",
+				"clear": true,
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "Local Runtime - Run VehicleApp",
+			"detail": "Starts the VehicleApp under development",
+			"type": "shell",
+			"command": [
+				"velocitas exec runtime-local run-vehicle-app python3 ${workspaceFolder}/app/src/main.py"
+			],
+			"presentation": {
+				"panel": "dedicated",
+				"close": false,
+				"reveal": "always"
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "Local Runtime - VehicleDataBroker CLI",
+			"detail": "Starts the VehicleDataBroker CLI",
+			"type": "shell",
+			"command": "velocitas exec runtime-local run-vehicledatabroker-cli",
+			"presentation": {
+				"panel": "dedicated",
+				"clear": true,
+			},
+			"group": "none",
+			"problemMatcher": []
+		},
+		{
+			"label": "Pre Commit Action",
+			"detail": "Perform checking/formating of the code",
+			"type": "shell",
+			"command": "pre-commit run --show-diff-on-failure --color=always --all-files",
+			"group": "none",
+			"problemMatcher": []
+		},
+		{
+			"label": "Import example app from SDK",
+			"detail": "Replace the app implementation in the app folder by an example app chosen from SDK repository",
+			"type": "shell",
+			"command": "./.vscode/scripts/import-example-app.sh ${input:exampleApp}",
+			"problemMatcher": []
+		},
+		{
+			"label": "(Re-)generate vehicle model",
+			"detail": "(Re-)generates the vehicle model from source files specified in the AppManifest.",
+			"type": "shell",
+			"command": "velocitas exec vehicle-signal-interface download-vspec && velocitas exec vehicle-signal-interface generate-model",
+			"group": "none",
+			"presentation": {
+				"reveal": "always",
+				"panel": "dedicated",
+				"clear": true,
+				"close": false
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "(Re-)generate gRPC SDKs",
+			"detail": "(Re-)generates all auto-generated gRPC SDKs used by the app",
+			"type": "shell",
+			"command": "velocitas exec grpc-interface-support generate-sdk",
+			"group": "none",
+			"presentation": {
+				"reveal": "always",
+				"panel": "dedicated",
+				"clear": true,
+				"close": false
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "Kanto Runtime - Up",
+			"detail": "Starts up the Kanto runtime.",
+			"type": "shell",
+			"command": "velocitas exec runtime-kanto up",
+			"group": "none",
+			"isBackground": true,
+			"presentation": {
+				"reveal": "always",
+				"clear": true,
+				"close": false
+			},
+			"problemMatcher": {
+				"pattern": [
+					{
+						"regexp": ".",
+						"file": 1,
+						"location": 2,
+						"message": 3
+					}
+				],
+				"background": {
+					"activeOnStart": true,
+					"beginsPattern": "Hint:",
+					"endsPattern": "^✅ Kanto is ready to use!.*"
+				}
+			}
+		},
+		{
+			"label": "Kanto Runtime - Down",
+			"detail": "Stops the Kanto runtime",
+			"type": "shell",
+			"command": "velocitas exec runtime-kanto down",
+			"group": "none",
+			"presentation": {
+				"reveal": "always",
+				"clear": true,
+				"close": false
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "Kanto Runtime - Build VehicleApp",
+			"detail": "Builds the VehicleApp.",
+			"type": "shell",
+			"command": "velocitas exec deployment-kanto build-vehicleapp",
+			"group": "none",
+			"presentation": {
+				"reveal": "always",
+				"panel": "dedicated",
+				"clear": true,
+				"close": false
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "Kanto Runtime - Deploy VehicleApp",
+			"detail": "Builds and deploys the VehicleApp via Kanto-cm",
+			"type": "shell",
+			"command": "velocitas exec deployment-kanto deploy-vehicleapp",
+			"group": "none",
+			"presentation": {
+				"reveal": "always",
+				"panel": "dedicated",
+				"clear": true,
+				"close": false
+			},
+			"dependsOn": [
+				"Kanto Runtime - Up",
+				"Kanto Runtime - Build VehicleApp"
+			],
+			"problemMatcher": []
+		},
+		{
+			"label": "Kanto Runtime - Deploy VehicleApp (without rebuild)",
+			"detail": "Deploys the VehicleApp via Kanto-cm (without rebuilding it)",
+			"type": "shell",
+			"command": "velocitas exec deployment-kanto deploy-vehicleapp",
+			"group": "none",
+			"presentation": {
+				"reveal": "always",
+				"panel": "dedicated",
+				"clear": true,
+				"close": false
+			},
+			"dependsOn": [
+				"Kanto Runtime - Up"
+			],
+			"problemMatcher": []
+		},
+		{
+			"label": "Kanto Runtime - Show kantUI Dashboard",
+			"detail": "Show dashboard of Kanto Runtime",
+			"type": "shell",
+			"command": "sudo kantui",
+			"group": "none",
+			"presentation": {
+				"reveal": "always",
+				"panel": "dedicated",
+				"clear": true,
+				"close": false
+			},
+			"problemMatcher": []
+		},
+	],
+	"inputs": [
+		{
+			"description": "Options for example apps from SDK package.",
+			"id": "exampleApp",
+			"type": "pickString",
+			"options": [
+				"seat-adjuster"
+			],
+		}
+	]
+}
