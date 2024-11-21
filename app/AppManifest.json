@@ -1,32 +1,46 @@
 {
     "manifestVersion": "v3",
-    "name": "SampleApp",
+    "name": "APT",
     "interfaces": [
-        {
-            "type": "vehicle-signal-interface",
-            "config": {
-                "src": "https://github.com/COVESA/vehicle_signal_specification/releases/download/v4.0/vss_rel_4.0.json",
-                "datapoints": {
-                    "required": [
-                        {
-                            "path": "Vehicle.Speed",
-                            "access": "read"
-                        }
-                    ]
-                }
-            }
-        },
-        {
-            "type": "pubsub",
-            "config": {
-                "reads": [
-                    "sampleapp/getSpeed"
-                ],
-                "writes": [
-                    "sampleapp/getSpeed/response",
-                    "sampleapp/currentSpeed"
+    {
+        "type": "vehicle-signal-interface",
+        "config": {
+            "src": "https://github.com/COVESA/vehicle_signal_specification/releases/download/v4.0/vss_rel_4.0.json",
+            "datapoints": {
+                "required": [
+                    {
+                        "path": "Vehicle.Speed",
+                        "access": "read"
+                    }
                 ]
             }
         }
+    },
+    {
+        "type": "pubsub",
+        "config": {
+            "reads": [
+            "APT/getSpeed",
+            "APT/accident"
+        ],
+        "writes": [
+            "APT/getSpeed/response",
+            "APT/currentSpeed",
+            "APT/accident/response"
+        ]
+    }
+},
+{
+    "type": "mqtt",
+    "config": {
+        "broker": "localhost",
+        "port": 1883,
+        "topics": {
+            "writes": [
+                "vehicle/accident"
+            ]
+        }
+        }
+    }
     ]
 }
