@@ -19,13 +19,6 @@ import json
 import logging
 import signal
 
-import paho.mqtt.client as mqtt
-import websockets
-
-MQTT_BROKER = "localhost"
-MQTT_PORT = 1883
-MQTT_TOPIC = "vehicle/accident"
-
 from vehicle import Vehicle, vehicle  # type: ignore
 from velocitas_sdk.util.log import (  # type: ignore
     get_opentelemetry_log_factory,
@@ -33,6 +26,14 @@ from velocitas_sdk.util.log import (  # type: ignore
 )
 from velocitas_sdk.vdb.reply import DataPointReply
 from velocitas_sdk.vehicle_app import VehicleApp, subscribe_topic
+
+import paho.mqtt.client as mqtt
+import websockets
+
+MQTT_BROKER = "localhost"
+MQTT_PORT = 1883
+MQTT_TOPIC = "vehicle/accident"
+
 
 # Configure the VehicleApp logger with the necessary log config and level.
 logging.setLogRecordFactory(get_opentelemetry_log_factory())
