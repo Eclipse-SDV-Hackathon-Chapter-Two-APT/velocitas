@@ -19,6 +19,13 @@ import json
 import logging
 import signal
 
+import paho.mqtt.client as mqtt
+import websockets
+
+MQTT_BROKER = "localhost"
+MQTT_PORT = 1883
+MQTT_TOPIC = "vehicle/accident"
+
 from vehicle import Vehicle, vehicle  # type: ignore
 from velocitas_sdk.util.log import (  # type: ignore
     get_opentelemetry_log_factory,
@@ -33,30 +40,49 @@ logging.basicConfig(format=get_opentelemetry_log_format())
 logging.getLogger().setLevel("DEBUG")
 logger = logging.getLogger(__name__)
 
-GET_SPEED_REQUEST_TOPIC = "sampleapp/getSpeed"
-GET_SPEED_RESPONSE_TOPIC = "sampleapp/getSpeed/response"
-DATABROKER_SUBSCRIPTION_TOPIC = "sampleapp/currentSpeed"
+GET_SPEED_REQUEST_TOPIC = "APT/getSpeed"
+GET_SPEED_RESPONSE_TOPIC = "APT/getSpeed/response"
+DATABROKER_SUBSCRIPTION_TOPIC = "APT/currentSpeed"
+ACCIDENT_REQUEST_TOPIC = "APT/accident"
+ACCIDENT_RESPONSE_TOPIC = "APT/accident/response"
+
+# WebSocket 클라이언트 관리
+connected_clients = set()
 
 
-class SampleApp(VehicleApp):
-    """
-    Sample skeleton vehicle app.
+async def websocket_handler(websocket):
+    # 클라이언트 연결 관리
+    print("websocket_handler !!!!!")
+    connected_clients.add(websocket)
+    print(connected_clients)
+    print("################")
+    try:
+        async for message in websocket:
+            print(f"Received from client: {message}")
+            # 클라이언트로 메시지 브로드캐스트 (예: Echo 메시지)
+            await asyncio.wait([client.send(message) for client in connected_clients])
+    except websockets.ConnectionClosed:
+        print("Client disconnected")
+    finally:
+        connected_clients.remove(websocket)
+        print("Client removed from connected_clients")
 
-    The skeleton subscribes to a getSpeed MQTT topic
-    to listen for incoming requests to get
-    the current vehicle speed and publishes it to
-    a response topic.
 
-    It also subcribes to the VehicleDataBroker
-    directly for updates of the
-    Vehicle.Speed signal and publishes this
-    information via another specific MQTT topic
-    """
+# WebSocket 서버 실행
+async def start_websocket_server():
+    server = await websockets.serve(websocket_handler, "0.0.0.0", 8765)
+    print("WebSocket server started on ws://0.0.0.0:8765")
+    await server.wait_closed()
 
+
+class APT(VehicleApp):
     def __init__(self, vehicle_client: Vehicle):
-        # SampleApp inherits from VehicleApp.
         super().__init__()
         self.Vehicle = vehicle_client
+        self.mqtt_client = mqtt.Client()
+        self.mqtt_client.on_connect = self.on_connect
+        self.mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
+        self.mqtt_client.loop_start()
 
     async def on_start(self):
         """Run when the vehicle app starts"""
@@ -65,17 +91,26 @@ class SampleApp(VehicleApp):
         # Here you can subscribe for the Vehicle Signals update (e.g. Vehicle Speed).
         await self.Vehicle.Speed.subscribe(self.on_speed_change)
 
+    def on_connect(self, client, userdata, flags, rc):
+        if rc == 0:
+            logger.info("Connected to MQTT Broker!")
+        else:
+            logger.error("Failed to connect, return code %d\n", rc)
+
+    async def handle_accident_event(self):
+        accident_data = {
+            "event": "accident",
+            "vehicle_id": "your_vehicle_id",
+            "timestamp": "2023-10-01T12:00:00Z",
+        }
+        self.mqtt_client.publish(MQTT_TOPIC, json.dumps(accident_data))
+        logger.info("Accident event published to MQTT")
+
     async def on_speed_change(self, data: DataPointReply):
         """The on_speed_change callback, this will be executed when receiving a new
-        vehicle signal updates."""
-        # Get the current vehicle speed value from the received DatapointReply.
-        # The DatapointReply containes the values of all subscribed DataPoints of
-        # the same callback.
+        vehicle signal updates."""  # # 데이터포인트 회신에는 동일한 콜백의 구독된 모든 데이터포인트의 값이 포함됩니다.
         vehicle_speed = data.get(self.Vehicle.Speed).value
 
-        # Do anything with the received value.
-        # Example:
-        # - Publishes current speed to MQTT Topic (i.e. DATABROKER_SUBSCRIPTION_TOPIC).
         await self.publish_event(
             DATABROKER_SUBSCRIPTION_TOPIC,
             json.dumps({"speed": vehicle_speed}),
@@ -86,20 +121,13 @@ class SampleApp(VehicleApp):
         """The subscribe_topic annotation is used to subscribe for incoming
         PubSub events, e.g. MQTT event for GET_SPEED_REQUEST_TOPIC.
         """
-
-        # Use the logger with the preferred log level (e.g. debug, info, error, etc)
         logger.debug(
             "PubSub event for the Topic: %s -> is received with the data: %s",
             GET_SPEED_REQUEST_TOPIC,
             data,
         )
 
-        # Getting current speed from VehicleDataBroker using the DataPoint getter.
         vehicle_speed = (await self.Vehicle.Speed.get()).value
-
-        # Do anything with the speed value.
-        # Example:
-        # - Publishes the vehicle speed to MQTT topic (i.e. GET_SPEED_RESPONSE_TOPIC).
         await self.publish_event(
             GET_SPEED_RESPONSE_TOPIC,
             json.dumps(
@@ -112,13 +140,44 @@ class SampleApp(VehicleApp):
             ),
         )
 
+    @subscribe_topic(ACCIDENT_REQUEST_TOPIC)
+    async def on_get_car_accident_received(self, data: str) -> None:
+        """The subscribe_topic annotation is used to subscribe for incoming
+        PubSub events, e.g. MQTT event for ACCIDENT_REQUEST_TOPIC.
+        """
+        logger.debug(
+            "PubSub event for the Topic: %s -> is received with the data: %s",
+            ACCIDENT_REQUEST_TOPIC,
+            data,
+        )
+
+        await self.publish_event(
+            ACCIDENT_RESPONSE_TOPIC,
+            json.dumps(
+                {
+                    "result": {
+                        "status": 0,
+                        "message": f"""Received Accident Data: {data}""",
+                    },
+                }
+            ),
+        )
+        if connected_clients:
+            message = json.dumps(
+                {
+                    "type": "accident",
+                    "data": data,
+                }
+            )
+            await asyncio.wait([client.send(message) for client in connected_clients])
+
 
 async def main():
     """Main function"""
-    logger.info("Starting SampleApp...")
-    # Constructing SampleApp and running it.
-    vehicle_app = SampleApp(vehicle)
-    await vehicle_app.run()
+    logger.info("Starting APT app...")
+    vehicle_app = APT(vehicle)
+    # await vehicle_app.run()
+    await asyncio.gather(vehicle_app.run(), start_websocket_server())
 
 
 LOOP = asyncio.get_event_loop()
