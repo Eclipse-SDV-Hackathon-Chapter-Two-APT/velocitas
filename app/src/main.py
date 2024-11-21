@@ -19,6 +19,8 @@ import json
 import logging
 import signal
 
+import paho.mqtt.client as mqtt
+import websockets
 from vehicle import Vehicle, vehicle  # type: ignore
 from velocitas_sdk.util.log import (  # type: ignore
     get_opentelemetry_log_factory,
@@ -26,9 +28,6 @@ from velocitas_sdk.util.log import (  # type: ignore
 )
 from velocitas_sdk.vdb.reply import DataPointReply
 from velocitas_sdk.vehicle_app import VehicleApp, subscribe_topic
-
-import paho.mqtt.client as mqtt
-import websockets
 
 MQTT_BROKER = "localhost"
 MQTT_PORT = 1883
@@ -47,12 +46,11 @@ DATABROKER_SUBSCRIPTION_TOPIC = "APT/currentSpeed"
 ACCIDENT_REQUEST_TOPIC = "APT/accident"
 ACCIDENT_RESPONSE_TOPIC = "APT/accident/response"
 
-# WebSocket 클라이언트 관리
+
 connected_clients = set()
 
 
 async def websocket_handler(websocket):
-    # 클라이언트 연결 관리
     print("websocket_handler !!!!!")
     connected_clients.add(websocket)
     print(connected_clients)
@@ -60,7 +58,6 @@ async def websocket_handler(websocket):
     try:
         async for message in websocket:
             print(f"Received from client: {message}")
-            # 클라이언트로 메시지 브로드캐스트 (예: Echo 메시지)
             await asyncio.wait([client.send(message) for client in connected_clients])
     except websockets.ConnectionClosed:
         print("Client disconnected")
@@ -69,7 +66,6 @@ async def websocket_handler(websocket):
         print("Client removed from connected_clients")
 
 
-# WebSocket 서버 실행
 async def start_websocket_server():
     server = await websockets.serve(websocket_handler, "0.0.0.0", 8765)
     print("WebSocket server started on ws://0.0.0.0:8765")
@@ -109,7 +105,7 @@ class APT(VehicleApp):
 
     async def on_speed_change(self, data: DataPointReply):
         """The on_speed_change callback, this will be executed when receiving a new
-        vehicle signal updates."""  # # 데이터포인트 회신에는 동일한 콜백의 구독된 모든 데이터포인트의 값이 포함됩니다.
+        vehicle signal updates."""
         vehicle_speed = data.get(self.Vehicle.Speed).value
 
         await self.publish_event(
